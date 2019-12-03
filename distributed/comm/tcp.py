@@ -1,5 +1,6 @@
 import errno
 import logging
+import os
 import socket
 import struct
 import sys
@@ -132,6 +133,14 @@ def convert_stream_closed_error(obj, exc):
         raise CommClosedError("in %s: %s" % (obj, exc))
 
 
+MSG_COUNTER = 0
+
+
+def write_binary(file, bytestring):
+    # file.write("let DATA: Vec<u8> = vec!({});".format(", ".join(str(int(x)) for x in bytestring)))
+    file.write(bytestring)
+
+
 class TCP(Comm):
     """
     An established communication based on an underlying Tornado IOStream.
@@ -181,9 +190,12 @@ class TCP(Comm):
             raise CommClosedError
 
         try:
+            b = []
             n_frames = await stream.read_bytes(8)
+            b.append(n_frames)
             n_frames = struct.unpack("Q", n_frames)[0]
             lengths = await stream.read_bytes(8 * n_frames)
+            b.append(lengths)
             lengths = struct.unpack("Q" * n_frames, lengths)
 
             frames = []
@@ -197,6 +209,7 @@ class TCP(Comm):
                         frame = await stream.read_bytes(length)
                 else:
                     frame = b""
+                b.append(frame)
                 frames.append(frame)
         except StreamClosedError as e:
             self.stream = None
@@ -207,6 +220,18 @@ class TCP(Comm):
                 msg = await from_frames(
                     frames, deserialize=self.deserialize, deserializers=deserializers
                 )
+                id = str(msg)[:36]\
+                    .replace(" ", "-")\
+                    .replace("{", "-")\
+                    .replace(":", "-")\
+                    .lower()
+                if "heartbeat" not in id and "status" not in id:
+                    name = "{}-recv-{}-{}".format(os.getpid(), MSG_COUNTER, id)
+                    with open("{}.bin".format(name), "wb") as f:
+                        b = b"".join(b)
+                        write_binary(f, b)
+                    with open("{}.txt".format(name), "w") as f:
+                        f.write(str(msg))
             except EOFError:
                 # Frames possibly garbled or truncated by communication error
                 self.abort()
@@ -214,6 +239,7 @@ class TCP(Comm):
             return msg
 
     async def write(self, msg, serializers=None, on_error="message"):
+        global MSG_COUNTER
         stream = self.stream
         bytes_since_last_yield = 0
         if stream is None:
@@ -226,6 +252,8 @@ class TCP(Comm):
             context={"sender": self._local_addr, "recipient": self._peer_addr},
         )
 
+        MSG_COUNTER = MSG_COUNTER + 1
+
         try:
             lengths = [nbytes(frame) for frame in frames]
             length_bytes = [struct.pack("Q", len(frames))] + [
@@ -233,6 +261,17 @@ class TCP(Comm):
             ]
             if sum(lengths) < 2 ** 17:  # 128kiB
                 b = b"".join(length_bytes + frames)  # small enough, send in one go
+                id = str(msg)[:36]\
+                    .replace(" ", "-")\
+                    .replace("{", "-")\
+                    .replace(":", "-")\
+                    .lower()
+                if "heartbeat" not in id and "status" not in id:
+                    name = "{}-send-{}-{}".format(os.getpid(), MSG_COUNTER, id)
+                    with open("{}.bin".format(name), "wb") as f:
+                        write_binary(f, b)
+                    with open("{}.txt".format(name), "w") as f:
+                        f.write(str(msg))
                 stream.write(b)
             else:
                 stream.write(b"".join(length_bytes))  # avoid large memcpy, send in many
