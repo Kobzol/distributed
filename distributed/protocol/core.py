@@ -19,20 +19,24 @@ _deserialize = deserialize
 logger = logging.getLogger(__name__)
 
 
-OFFLOAD_KEY = "_$"
+OFFLOAD_HEADER_KEY = "_$header"
+OFFLOAD_FINDEX_KEY = "_$findex"
 
 
-def _make_offload_value(value):
-    return {OFFLOAD_KEY: value}
+def _make_offload_value(header, frame_index):
+    return {OFFLOAD_HEADER_KEY: header, OFFLOAD_FINDEX_KEY: frame_index}
 
 
 def _extract_offload_value(value):
-    if not isinstance(value, dict) or len(value) != 1:
+    if not isinstance(value, dict) or len(value) != 2:
         return None
-    val = value.get(OFFLOAD_KEY)
-    if val is None:
+    frame_index = value.get(OFFLOAD_FINDEX_KEY)
+    if frame_index is None:
         return None
-    return val
+    header = value.get(OFFLOAD_HEADER_KEY)
+    if header is None:
+        return None
+    return (header, frame_index)
 
 
 def dumps(msg, serializers=None, on_error="message", context=None):
@@ -66,8 +70,7 @@ def dumps(msg, serializers=None, on_error="message", context=None):
             accessor, key = path[:-1], path[-1]
             holder = reduce(operator.getitem, accessor, context)
             header["deserialize"] = path in bytestrings
-            header["frame_index"] = frame_index
-            holder[key] = _make_offload_value(header)
+            holder[key] = _make_offload_value(header, frame_index)
 
         for key, (head, frames) in data.items():
             head = dict(head)
@@ -100,6 +103,7 @@ def dumps(msg, serializers=None, on_error="message", context=None):
                     frame = frame.tobytes()
                 out_frames[i] = frame
 
+        print(msg)
         return dumps_msgpack(msg) + out_frames
     except Exception:
         logger.critical("Failed to Serialize", exc_info=True)
@@ -122,9 +126,8 @@ def loads(frames, deserialize=True, deserializers=None):
         def _traverse(item):
             placeholder = _extract_offload_value(item)
             if placeholder is not None:
-                header = placeholder
+                header, frame_index = placeholder
                 deserialize_key = header["deserialize"]
-                frame_index = header["frame_index"]
                 count = header["count"]
                 if count:
                     start_index = out_frames_start + frame_index

@@ -193,10 +193,10 @@ class TCP(Comm):
             b = []
             n_frames = await stream.read_bytes(8)
             b.append(n_frames)
-            n_frames = struct.unpack("Q", n_frames)[0]
+            n_frames = struct.unpack(">Q", n_frames)[0]
             lengths = await stream.read_bytes(8 * n_frames)
             b.append(lengths)
-            lengths = struct.unpack("Q" * n_frames, lengths)
+            lengths = struct.unpack(">" + "Q" * n_frames, lengths)
 
             frames = []
             for length in lengths:
@@ -256,8 +256,8 @@ class TCP(Comm):
 
         try:
             lengths = [nbytes(frame) for frame in frames]
-            length_bytes = [struct.pack("Q", len(frames))] + [
-                struct.pack("Q", x) for x in lengths
+            length_bytes = [struct.pack(">Q", len(frames))] + [
+                struct.pack(">Q", x) for x in lengths
             ]
             if sum(lengths) < 2 ** 17:  # 128kiB
                 b = b"".join(length_bytes + frames)  # small enough, send in one go
