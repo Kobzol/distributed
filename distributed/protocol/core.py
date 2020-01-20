@@ -21,14 +21,15 @@ logger = logging.getLogger(__name__)
 
 OFFLOAD_HEADER_KEY = "_$header"
 OFFLOAD_FINDEX_KEY = "_$findex"
+OFFLOAD_FCOUNT_KEY = "_$fcount"
 
 
-def _make_offload_value(header, frame_index):
-    return {OFFLOAD_HEADER_KEY: header, OFFLOAD_FINDEX_KEY: frame_index}
+def _make_offload_value(header, frame_index, frame_count):
+    return {OFFLOAD_HEADER_KEY: header, OFFLOAD_FINDEX_KEY: frame_index, OFFLOAD_FCOUNT_KEY: frame_count}
 
 
 def _extract_offload_value(value):
-    if not isinstance(value, dict) or len(value) != 2:
+    if not isinstance(value, dict) or len(value) != 3:
         return None
     frame_index = value.get(OFFLOAD_FINDEX_KEY)
     if frame_index is None:
@@ -36,6 +37,7 @@ def _extract_offload_value(value):
     header = value.get(OFFLOAD_HEADER_KEY)
     if header is None:
         return None
+    assert header["count"] == value.get(OFFLOAD_FCOUNT_KEY)  # TODO
     return (header, frame_index)
 
 
@@ -66,11 +68,11 @@ def dumps(msg, serializers=None, on_error="message", context=None):
 
         out_frames = []
 
-        def patch_offload_header(path, header, frame_index, context):
+        def patch_offload_header(path, header, frame_index, frame_count, context):
             accessor, key = path[:-1], path[-1]
             holder = reduce(operator.getitem, accessor, context)
             header["deserialize"] = path in bytestrings
-            holder[key] = _make_offload_value(header, frame_index)
+            holder[key] = _make_offload_value(header, frame_index, frame_count)
 
         for key, (head, frames) in data.items():
             head = dict(head)
@@ -84,7 +86,7 @@ def dumps(msg, serializers=None, on_error="message", context=None):
                     compression = []
                 head["compression"] = compression
             head["count"] = len(frames)
-            patch_offload_header(key, head, len(out_frames), msg)
+            patch_offload_header(key, head, len(out_frames), len(frames), msg)
             out_frames.extend(frames)
 
         for key, (head, frames) in pre.items():
@@ -92,7 +94,7 @@ def dumps(msg, serializers=None, on_error="message", context=None):
             if "lengths" not in head:
                 head["lengths"] = tuple(map(nbytes, frames))
             head["count"] = len(frames)
-            patch_offload_header(key, head, len(out_frames), msg)
+            patch_offload_header(key, head, len(out_frames), len(frames), msg)
             out_frames.extend(frames)
 
         for i, frame in enumerate(out_frames):
@@ -103,7 +105,6 @@ def dumps(msg, serializers=None, on_error="message", context=None):
                     frame = frame.tobytes()
                 out_frames[i] = frame
 
-        print(msg)
         return dumps_msgpack(msg) + out_frames
     except Exception:
         logger.critical("Failed to Serialize", exc_info=True)
