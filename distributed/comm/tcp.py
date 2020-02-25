@@ -223,9 +223,12 @@ class TCP(Comm):
                 id = str(msg)[:36]\
                     .replace(" ", "-")\
                     .replace("{", "-")\
+                    .replace("/", "-")\
+                    .replace("\\", "-")\
+                    .replace(";", "-")\
                     .replace(":", "-")\
                     .lower()
-                if "heartbeat" not in id and "status" not in id:
+                if "heartbeat" not in str(msg):
                     name = "{}-recv-{}-{}".format(os.getpid(), MSG_COUNTER, id)
                     with open("{}.bin".format(name), "wb") as f:
                         b = b"".join(b)
@@ -265,8 +268,11 @@ class TCP(Comm):
                     .replace(" ", "-")\
                     .replace("{", "-")\
                     .replace(":", "-")\
+                    .replace("/", "-")\
+                    .replace("\\", "-")\
+                    .replace(";", "-")\
                     .lower()
-                if "heartbeat" not in id and "status" not in id:
+                if "heartbeat" not in str(msg):
                     name = "{}-send-{}-{}".format(os.getpid(), MSG_COUNTER, id)
                     with open("{}.bin".format(name), "wb") as f:
                         write_binary(f, b)
@@ -274,6 +280,7 @@ class TCP(Comm):
                         f.write(str(msg))
                 stream.write(b)
             else:
+                print("LARGE MESSAGE")
                 stream.write(b"".join(length_bytes))  # avoid large memcpy, send in many
 
                 for frame in frames:

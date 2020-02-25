@@ -148,7 +148,7 @@ def loads(frames, deserialize=True, deserializers=None):
                 return value
 
             if isinstance(item, (list, tuple)):
-                return type(item)(_traverse(i) for i in item)
+                return list(_traverse(i) for i in item)
             elif isinstance(item, dict):
                 return {
                     key: _traverse(val)
