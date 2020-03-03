@@ -830,6 +830,7 @@ class Worker(ServerNode):
                 middle = (_start + _end) / 2
                 self.latency = (_end - start) * 0.05 + self.latency * 0.95
                 self.scheduler_delay = response["time"] - middle
+                logger.info(f"SCHEDULER_DELAY: {self.scheduler_delay}")
                 self.status = "running"
                 break
             except EnvironmentError:
