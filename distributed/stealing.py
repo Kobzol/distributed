@@ -6,6 +6,8 @@ from time import time
 import dask
 from .core import CommClosedError
 from .diagnostics.plugin import SchedulerPlugin
+from .trace import trace_worker_steal, trace_worker_steal_response_missing, \
+    trace_worker_steal_response
 from .utils import log_errors, PeriodicCallback
 
 try:
@@ -176,6 +178,7 @@ class WorkStealing(SchedulerPlugin):
                 ts
             ) + self.scheduler.get_comm_cost(ts, thief)
 
+            trace_worker_steal(ts.id, victim.id, thief.id)
             self.scheduler.stream_comms[victim.address].send(
                 {"op": "steal-request", "key": key}
             )
@@ -204,6 +207,7 @@ class WorkStealing(SchedulerPlugin):
             try:
                 ts = self.scheduler.tasks[key]
             except KeyError:
+                trace_worker_steal_response_missing(key, worker)
                 logger.debug("Key released between request and confirm: %s", key)
                 return
             try:
@@ -249,9 +253,11 @@ class WorkStealing(SchedulerPlugin):
                 )
                 self.scheduler.check_idle_saturated(thief)
                 self.scheduler.check_idle_saturated(victim)
+                trace_worker_steal_response(ts.id, victim.id, thief.id, "fail")
 
             # Victim was waiting, has given up task, enact steal
             elif state in ("waiting", "ready"):
+                trace_worker_steal_response(ts.id, victim.id, thief.id, "success")
                 self.remove_key_from_stealable(ts)
                 ts.processing_on = thief
                 duration = victim.processing.pop(ts)

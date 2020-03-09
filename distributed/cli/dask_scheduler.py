@@ -17,6 +17,7 @@ from distributed import Scheduler
 from distributed.preloading import validate_preload_argv
 from distributed.security import Security
 from distributed.cli.utils import check_python_3, install_signal_handlers
+from distributed.trace import trace_close
 from distributed.utils import deserialize_for_cli
 from distributed.proctitle import (
     enable_proctitle_on_children,
@@ -240,6 +241,7 @@ def main(
         if local_directory_created:
             shutil.rmtree(local_directory)
 
+        trace_close()
         logger.info("End scheduler at %r", scheduler.address)
 
 

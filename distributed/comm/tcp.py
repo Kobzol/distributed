@@ -7,6 +7,8 @@ import sys
 from tornado import gen
 import weakref
 
+from ..trace import trace_packet_receive, trace_packet_send
+
 try:
     import ssl
 except ImportError:
@@ -190,6 +192,8 @@ class TCP(Comm):
             b.append(lengths)
             lengths = struct.unpack("<" + "Q" * n_frames, lengths)
 
+            trace_packet_receive(8 + 8 * n_frames + sum(lengths))
+
             frames = []
             for length in lengths:
                 if length:
@@ -236,6 +240,7 @@ class TCP(Comm):
             length_bytes = [struct.pack("<Q", len(frames))] + [
                 struct.pack("<Q", x) for x in lengths
             ]
+            trace_packet_send(8 + 8 * len(lengths) + sum(lengths))
             if sum(lengths) < 2 ** 17:  # 128kiB
                 b = b"".join(length_bytes + frames)  # small enough, send in one go
                 stream.write(b)
