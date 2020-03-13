@@ -1,5 +1,6 @@
 import asyncio
 import collections
+from asyncio import Future
 from contextlib import contextmanager
 import copy
 from datetime import timedelta
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import textwrap
 import threading
+from random import Random
 from time import sleep
 import uuid
 import warnings
@@ -774,6 +776,41 @@ from .scheduler import Scheduler
 from .worker import Worker
 
 
+class RsdsScheduler:
+    def __init__(self, loop, port=0, worker_count=0, **kwargs):
+        assert port is 0
+        port = Random().randrange(2000, 65000)
+        self.address = f"127.0.0.1:{port}"
+        self.loop = loop
+        self.scheduler = subprocess.Popen([
+            "/home/kobzol/projects/it4i/tg/rsds/target/debug/rsds",
+            "--port",
+            str(port)
+        ], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd="/home/kobzol/projects/it4i/tg/rsds")
+        self.validate = False
+        self.status = "running"
+        self.workers = [None] * worker_count
+        self.stream_comms = {}
+
+    def close(self):
+        self.scheduler.kill()
+        fut = Future()
+        fut.set_result(self)
+        self.status = "closed"
+        return fut
+
+    def stop(self):
+        pass
+
+    def __await__(self):
+        fut = Future()
+        fut.set_result(self)
+        return fut.__await__()
+
+
 async def start_cluster(
     nthreads,
     scheduler_addr,
@@ -783,12 +820,13 @@ async def start_cluster(
     scheduler_kwargs={},
     worker_kwargs={},
 ):
-    s = await Scheduler(
+    s = await RsdsScheduler(
         loop=loop,
         validate=True,
         security=security,
         port=0,
         host=scheduler_addr,
+        worker_count=len(nthreads),
         **scheduler_kwargs
     )
     workers = [
