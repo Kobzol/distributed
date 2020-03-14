@@ -86,8 +86,98 @@ DEFAULT_EXTENSIONS = [
     PubSubSchedulerExtension,
 ]
 
-# if dask.config.get("distributed.scheduler.work-stealing"):
-#     DEFAULT_EXTENSIONS.append(WorkStealing)
+
+class NoopScheduler:
+    def use_workstealing(self):
+        return True
+
+    def assign_priorities(self, tasks):
+        pass
+
+    def decide_workers(self, scheduler, valid_workers):
+        return None
+
+
+class RandomScheduler(NoopScheduler):
+    def use_workstealing(self):
+        return False
+
+    def decide_workers(self, scheduler, valid_workers):
+        if valid_workers is True:
+            valid_workers = scheduler.workers.values()
+        return random.choice(valid_workers)
+
+
+class LevelScheduler(NoopScheduler):
+    def use_workstealing(self):
+        return False
+
+    def assign_priorities(self, tasks):
+        self.calculate_level(tasks)
+
+    def succ(self, t):
+        raise NotImplementedError()
+
+    def pred(self, t):
+        raise NotImplementedError()
+
+    def calculate_level(self, tasks):
+        stack = []
+        neighbours = {}
+        for (key, ts) in tasks.items():
+            if len(self.pred(ts)) == 0:
+                stack.append(ts)
+            else:
+                neighbours[key] = len(self.pred(ts))
+        while stack:
+            task = stack.pop()
+            priority = 0
+            for t in self.pred(task):
+                priority = max(priority, t.priority[0])
+            task.priority = (priority + 1, )
+
+            for inp in self.succ(task):
+                n = neighbours[inp.key]
+                if n == 1:
+                    stack.append(inp)
+                else:
+                    neighbours[inp.key] -= 1
+
+
+class BlevelScheduler(LevelScheduler):
+    def succ(self, t):
+        return t.dependents
+
+    def pred(self, t):
+        return t.dependencies
+
+
+class TlevelScheduler(LevelScheduler):
+    def assign_priorities(self, tasks):
+        super().assign_priorities(tasks)
+        for task in tasks.values():
+            task.priority = (-task.priority[0], )
+
+    def succ(self, t):
+        return t.dependencies
+
+    def pred(self, t):
+        return t.dependents
+
+
+TASK_SCHEDULER = NoopScheduler()
+SCHEDULER_ENV = os.environ.get("DASK_SCHEDULER")
+if SCHEDULER_ENV == "blevel":
+    TASK_SCHEDULER = BlevelScheduler()
+elif SCHEDULER_ENV == "tlevel":
+    TASK_SCHEDULER = TlevelScheduler()
+elif SCHEDULER_ENV == "random":
+    TASK_SCHEDULER = RandomScheduler()
+elif SCHEDULER_ENV is not None:
+    raise Exception(f"Unknown scheduler {SCHEDULER_ENV}")
+
+if dask.config.get("distributed.scheduler.work-stealing") and TASK_SCHEDULER.use_workstealing():
+    DEFAULT_EXTENSIONS.append(WorkStealing)
 
 ALL_TASK_STATES = {"released", "waiting", "no-worker", "processing", "erred", "memory"}
 
@@ -856,6 +946,7 @@ class Scheduler(ServerNode):
         **kwargs
     ):
         self._setup_logging(logger)
+        logger.info(f"Dask with {SCHEDULER_ENV} scheduler")
 
         # Attributes
         if allowed_failures is None:
@@ -1759,7 +1850,7 @@ class Scheduler(ServerNode):
             except Exception as e:
                 logger.exception(e)
 
-        assign_priorities(self.tasks)
+        TASK_SCHEDULER.assign_priorities(self.tasks)
 
         self.transitions(recommendations)
 
@@ -3658,6 +3749,10 @@ class Scheduler(ServerNode):
             ts.state = "no-worker"
             return None
 
+        workers = TASK_SCHEDULER.decide_workers(self, valid_workers)
+        if workers is not None:
+            return workers
+
         if ts.dependencies or valid_workers is not True:
             worker = decide_worker(
                 ts,
@@ -5109,50 +5204,6 @@ def validate_state(tasks, workers, clients):
                 str(ts),
                 str(ts.who_wants),
             )
-
-
-USE_BLEVEL = os.environ.get("DASK_BLEVEL", "1") == "1"
-logger.info(f"Dask with {'Blevel' if USE_BLEVEL else 'Tlevel'} scheduler")
-
-
-def assign_priorities(tasks):
-    if USE_BLEVEL:
-        def succ(t):
-            return t.dependents
-
-        def prev(t):
-            return t.dependencies
-    else:
-        def succ(t):
-            return t.dependencies
-
-        def prev(t):
-            return t.dependents
-
-    stack = []
-    neighbours = {}
-    for (key, ts) in tasks.items():
-        if len(prev(ts)) == 0:
-            stack.append(ts)
-        else:
-            neighbours[key] = len(prev(ts))
-    while stack:
-        task = stack.pop()
-        priority = 0
-        for t in prev(task):
-            priority = max(priority, t.priority[0])
-        task.priority = (priority + 1, )
-
-        for inp in succ(task):
-            n = neighbours[inp.key]
-            if n == 1:
-                stack.append(inp)
-            else:
-                neighbours[inp.key] -= 1
-
-    if not USE_BLEVEL:
-        for task in tasks:
-            task.priority = (-task.priority[0], )
 
 
 _round_robin = [0]
