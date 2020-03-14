@@ -86,8 +86,8 @@ DEFAULT_EXTENSIONS = [
     PubSubSchedulerExtension,
 ]
 
-if dask.config.get("distributed.scheduler.work-stealing"):
-    DEFAULT_EXTENSIONS.append(WorkStealing)
+# if dask.config.get("distributed.scheduler.work-stealing"):
+#     DEFAULT_EXTENSIONS.append(WorkStealing)
 
 ALL_TASK_STATES = {"released", "waiting", "no-worker", "processing", "erred", "memory"}
 
@@ -1758,6 +1758,8 @@ class Scheduler(ServerNode):
                 )
             except Exception as e:
                 logger.exception(e)
+
+        assign_priorities(self.tasks)
 
         self.transitions(recommendations)
 
@@ -5107,6 +5109,50 @@ def validate_state(tasks, workers, clients):
                 str(ts),
                 str(ts.who_wants),
             )
+
+
+USE_BLEVEL = os.environ.get("DASK_BLEVEL", "1") == "1"
+logger.info(f"Dask with {'Blevel' if USE_BLEVEL else 'Tlevel'} scheduler")
+
+
+def assign_priorities(tasks):
+    if USE_BLEVEL:
+        def succ(t):
+            return t.dependents
+
+        def prev(t):
+            return t.dependencies
+    else:
+        def succ(t):
+            return t.dependencies
+
+        def prev(t):
+            return t.dependents
+
+    stack = []
+    neighbours = {}
+    for (key, ts) in tasks.items():
+        if len(prev(ts)) == 0:
+            stack.append(ts)
+        else:
+            neighbours[key] = len(prev(ts))
+    while stack:
+        task = stack.pop()
+        priority = 0
+        for t in prev(task):
+            priority = max(priority, t.priority[0])
+        task.priority = (priority + 1, )
+
+        for inp in succ(task):
+            n = neighbours[inp.key]
+            if n == 1:
+                stack.append(inp)
+            else:
+                neighbours[inp.key] -= 1
+
+    if not USE_BLEVEL:
+        for task in tasks:
+            task.priority = (-task.priority[0], )
 
 
 _round_robin = [0]
