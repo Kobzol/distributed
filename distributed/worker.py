@@ -3193,12 +3193,20 @@ def loads_function(bytes_object):
     return pickle.loads(bytes_object)
 
 
+def _deserialize_args(args):
+    if isinstance(args, bytes):
+        return pickle.loads(args)
+    elif isinstance(args, (tuple, list)):
+        return type(args)(_deserialize_args(arg) for arg in args)
+    return args
+
+
 def _deserialize(function=None, args=None, kwargs=None, task=no_value):
     """ Deserialize task inputs and regularize to func, args, kwargs """
     if function is not None:
         function = loads_function(function)
     if args:
-        args = pickle.loads(args)
+        args = _deserialize_args(args)
     if kwargs:
         kwargs = pickle.loads(kwargs)
 
