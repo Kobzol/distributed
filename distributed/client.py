@@ -2401,6 +2401,41 @@ class Client(Node):
         )
         return self.run(function, *args, **kwargs)
 
+    def _taskarray_to_futures(
+        self,
+        array,
+    ):
+        stack = [array]
+        names = {}
+        processed_arrays = []
+
+        def serialize(a):
+            for dep in a.dependencies():
+                if dep in names:
+                    continue
+                serialize(dep)
+            name = uuid.uuid4().hex
+            processed_arrays.append({
+                "key": name,
+                "parts": [part.to_dict(names) for part in a.parts],
+            })
+            names[a] = name
+
+        serialize(array)
+
+        self._send_to_scheduler(
+            {
+                "op": "update-array-graph",
+                "arrays": processed_arrays,
+            }
+        )
+
+        key = names[array]
+        futures = [
+            Future("{}-{}".format(key, i), inform=False) for i in range(array.size)
+        ]
+        return futures
+
     def _graph_to_futures(
         self,
         dsk,
@@ -2500,6 +2535,7 @@ class Client(Node):
                 }
             )
             return futures
+
 
     def get(
         self,
