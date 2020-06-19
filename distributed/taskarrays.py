@@ -1,5 +1,6 @@
-from distributed.worker import dumps_function
 import cloudpickle
+
+from distributed.worker import dumps_function, warn_dumps
 
 
 class Expression:
@@ -114,10 +115,11 @@ class Slice(Expression):
 
 class TaskArrayPart:
 
-    def __init__(self, size, function, arg_exprs):
+    def __init__(self, size, function, arg_exprs, kwargs):
         self.size = size
         self.function = function
         self.arg_exprs = arg_exprs
+        self.kwargs = kwargs
 
     def dependencies(self):
         result = frozenset()
@@ -129,7 +131,8 @@ class TaskArrayPart:
         return {
             "size": self.size,
             "function": dumps_function(self.function),
-            "args": [make_arg_def(a, names) for a in self.arg_exprs]  # TODO
+            "args": [make_arg_def(a, names) for a in self.arg_exprs],  # TODO,
+            "kwargs": warn_dumps(self.kwargs)
         }
 
     def __getitem__(self, item):
@@ -156,8 +159,8 @@ def make_arg_def(value, names):
 
 class TaskArray:
 
-    def __init__(self, size, function, arg_exprs):
-        self.parts = [TaskArrayPart(size, function, arg_exprs)]
+    def __init__(self, size, function, arg_exprs, kwargs=None):
+        self.parts = [TaskArrayPart(size, function, arg_exprs, kwargs)]
         self.size = size
 
     def dependencies(self):
