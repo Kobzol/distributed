@@ -2405,7 +2405,6 @@ class Client(Node):
         self,
         array,
     ):
-        stack = [array]
         names = {}
         processed_arrays = []
 
@@ -2414,12 +2413,11 @@ class Client(Node):
                 if dep in names:
                     continue
                 serialize(dep)
-            name = uuid.uuid4().hex
             processed_arrays.append({
-                "key": name,
+                "key": a.id,
                 "parts": [part.to_dict(names) for part in a.parts],
             })
-            names[a] = name
+            names[a] = a.id
 
         serialize(array)
 
@@ -2434,7 +2432,7 @@ class Client(Node):
         futures = [
             Future("{}-{}".format(key, i), inform=False) for i in range(array.size)
         ]
-        return futures
+        return {f.key: f for f in futures}
 
     def _graph_to_futures(
         self,
@@ -2585,17 +2583,21 @@ class Client(Node):
         --------
         Client.compute: Compute asynchronous collections
         """
-        futures = self._graph_to_futures(
-            dsk,
-            keys=set(flatten([keys])),
-            restrictions=restrictions,
-            loose_restrictions=loose_restrictions,
-            resources=resources,
-            fifo_timeout=fifo_timeout,
-            retries=retries,
-            user_priority=priority,
-            actors=actors,
-        )
+        from distributed.taskarrays import TaskArray
+        if isinstance(dsk, TaskArray):
+            futures = self._taskarray_to_futures(dsk)
+        else:
+            futures = self._graph_to_futures(
+                dsk,
+                keys=set(flatten([keys])),
+                restrictions=restrictions,
+                loose_restrictions=loose_restrictions,
+                resources=resources,
+                fifo_timeout=fifo_timeout,
+                retries=retries,
+                user_priority=priority,
+                actors=actors,
+            )
         packed = pack_data(keys, futures)
         if sync:
             if getattr(thread_state, "key", False):
