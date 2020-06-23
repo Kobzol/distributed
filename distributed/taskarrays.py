@@ -119,22 +119,36 @@ class TaskRef:
     def __init__(self, key):
         self.key = key
 
-    def dependencies(self):
-        return frozenset()
-
     def to_arg_def(self, names):
         return {
             "task": self.key
         }
 
 
-class TaskArrayPart:
+class ContextRef:
+    def __init__(self, index):
+        assert not isinstance(index, slice)
+        expr = to_int_expr(index)
+        assert expr is not None
+        self.index = expr
 
-    def __init__(self, size, function, arg_exprs, kwargs=None):
+    def to_arg_def(self, names):
+        return {
+            "ctx-ref": self.index.to_inline_def()
+        }
+
+
+def ctx_ref(index):
+    return ContextRef(index)
+
+
+class TaskArrayPart:
+    def __init__(self, size, function, arg_exprs, kwargs=None, context=None):
         self.size = size
         self.function = function
         self.arg_exprs = arg_exprs
         self.kwargs = kwargs
+        self.context = context
 
     def dependencies(self):
         result = frozenset()
@@ -147,6 +161,7 @@ class TaskArrayPart:
             "size": self.size,
             "function": dumps_function(self.function),
             "args": [make_arg_def(a, names) for a in self.arg_exprs],  # TODO,
+            "context": tuple(warn_dumps(item) for item in self.context) if self.context else (),
         }
         if self.kwargs is not None:
             data["kwargs"] = warn_dumps(self.kwargs)
@@ -167,7 +182,7 @@ def get_arg_dependencies(value):
 def make_arg_def(value, names):
     if isinstance(value, TaskArray):
         return {"task-array": [names[value], "all"]}
-    if isinstance(value, (Expression, TaskRef)):
+    if isinstance(value, (Expression, TaskRef, ContextRef)):
         return value.to_arg_def(names)
     if isinstance(value, bool):
         return {"bool": value}
@@ -177,30 +192,8 @@ def make_arg_def(value, names):
 
 
 class TaskArray:
-    @staticmethod
-    def from_parts(parts):
-        assert len(parts) > 0
-        part = parts[0]
-        array = TaskArray(part.size, part.function, part.arg_exprs, part.kwargs)
-        for part in parts[1:]:
-            array.add_part(part)
-        return array
-
-    @staticmethod
-    def from_constant_list(items):
-        assert len(items) > 0
-
-        def make_part(item):
-            return TaskArrayPart(1, lambda x: x, [item])
-
-        part = make_part(items[0])
-        array = TaskArray(part.size, part.function, part.arg_exprs, part.kwargs)
-        for item in items[1:]:
-            array.add_part(make_part(item))
-        return array
-
-    def __init__(self, size, function, arg_exprs, kwargs=None):
-        self.parts = [TaskArrayPart(size, function, arg_exprs, kwargs)]
+    def __init__(self, size, function, arg_exprs, kwargs=None, context=None):
+        self.parts = [TaskArrayPart(size, function, arg_exprs, kwargs, context)]
         self.size = size
         self.id = uuid.uuid4().hex
 
