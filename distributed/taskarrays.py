@@ -172,6 +172,8 @@ class TaskArrayPart:
 
 
 def get_arg_dependencies(value):
+    if isinstance(value, (tuple, list)):
+        return frozenset().union(*(get_arg_dependencies(d) for d in value))
     if isinstance(value, TaskArray):
         return frozenset((value,))
     if isinstance(value, Expression):
@@ -180,6 +182,8 @@ def get_arg_dependencies(value):
 
 
 def make_arg_def(value, names):
+    if isinstance(value, (tuple, list)):
+        return {"list": type(value)(make_arg_def(v, names) for v in value)}
     if isinstance(value, TaskArray):
         return {"task-array": [names[value], "all"]}
     if isinstance(value, (Expression, TaskRef, ContextRef)):
