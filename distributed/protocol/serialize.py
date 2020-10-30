@@ -135,6 +135,7 @@ def serialize(x, serializers=None, on_error="message", context=None):
     if isinstance(x, Serialized):
         return x.header, x.frames
 
+    """ Sub frames disabled
     # Determine whether keys are safe to be serialized with msgpack
     if type(x) is dict and len(x) <= 5:
         try:
@@ -182,7 +183,7 @@ def serialize(x, serializers=None, on_error="message", context=None):
             "type-serialized": type(x).__name__,
         }
         return headers, frames
-
+    """
     tb = ""
 
     for name in serializers:
